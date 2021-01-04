@@ -6,7 +6,7 @@ import random
 import argparse
 import warnings
 
-sys.path.append("D:\\Development\\porto-taxis")
+sys.path.append(os.path.join(__file__, ".."))
 
 import numpy as np
 
@@ -37,6 +37,10 @@ def base_config():
     # Number of restarts to use for non-random initializations
     num_init_restarts = 5000
 
+    # Maximum number of paths to use for testing
+    # Each test path takes about 30 seconds to evaluate
+    max_num_testpaths = 250
+
     # Tolerance for Negative Log Likelihood convergence
     em_nll_tolerance = 1e-3
 
@@ -57,6 +61,7 @@ def poto_taxi_forecasting(
     initialisation,
     rollout_minmaxlen,
     num_init_restarts,
+    max_num_testpaths,
     reward_range,
     em_nll_tolerance,
     maxent_feature_tolerance,
@@ -65,7 +70,7 @@ def poto_taxi_forecasting(
     _run,
 ):
 
-    _log.info("Initializing")
+    _log.info("Initializing...")
 
     # About 8 seconds to load
     xtr = PortoExtras()
@@ -95,15 +100,15 @@ def poto_taxi_forecasting(
         )
     )
 
-    # A very small test set for debugging purposes
-    # XXX REMOVE ME TEST TODO
-    rollouts_test = rollouts_test[0:10]
+    # Truncate testing path set
+    rollouts_test = rollouts_test[0:max_num_testpaths]
 
     _log.info("Solving...")
     if initialisation == "Baseline":
 
         # Run shortest path baseline
 
+        _log.info("Evaluating ML paths...")
         paths = []
         fds = []
         pdms = []
@@ -127,10 +132,10 @@ def poto_taxi_forecasting(
             pdms=pdms,
             fds=fds,
             iterations=np.nan,
-            resp_history=[],
-            mode_weights_history=[],
-            rewards_history=[],
-            nll_history=[],
+            learned_resp=[],
+            learned_mode_weights=[],
+            learned_rewards=[],
+            nll=[],
             reason="",
         )
 
@@ -143,14 +148,14 @@ def poto_taxi_forecasting(
         xtr_p, rollouts_p_train = padding_trick(xtr, rollouts_train)
 
         # Prep solver
-        print("Loading MaxEnt solver...")
+        _log.info("Loading MaxEnt solver...")
         solver = MaxEntEMSolver(
             # LBFGS convergence threshold (units of km)
             minimize_kwargs=dict(tol=maxent_feature_tolerance),
             minimize_options=dict(disp=True),
         )
 
-        print("Initializing...")
+        _log.info("Initializing Mixture...")
         if initialisation == "Random":
             # Initialize randomly
             init_mode_weights, init_rewards = solver.init_random(
@@ -179,7 +184,7 @@ def poto_taxi_forecasting(
         else:
             raise ValueError()
 
-        print("Solving...")
+        _log.info("BV EM Loop...")
         (
             iterations,
             resp_history,
@@ -197,7 +202,6 @@ def poto_taxi_forecasting(
             mode_weights=init_mode_weights,
             rewards=init_rewards,
             tolerance=em_nll_tolerance,
-            max_iterations=1,
         )
         iterations = len(resp_history)
         learned_resp = resp_history[-1]
@@ -205,12 +209,22 @@ def poto_taxi_forecasting(
         learned_rewards = rewards_history[-1]
         nll = nll_history[-1]
 
-        print(f"Iterations: {iterations}")
-        print("Responsibility Matrix")
-        print(learned_resp)
-        print(f"Mode Weights: {learned_mode_weights}")
-        print(f"Rewards: {[r.theta for r in learned_rewards]}")
-        print(f"Model NLL: {nll}")
+        # Log training values NLLs as metrics
+        for _learned_mode_weights in mode_weights_history:
+            _run.log_scalar("training.mode_weights", _learned_mode_weights.tolist())
+        for _learned_rewards in rewards_history:
+            _run.log_scalar(
+                "training.rewards", [r.theta.tolist() for r in _learned_rewards]
+            )
+        for _nll in nll_history:
+            _run.log_scalar("training.nll", float(_nll))
+
+        _log.info(f"Iterations: {iterations}")
+        _log.info("Responsibility Matrix")
+        _log.info(learned_resp)
+        _log.info(f"Mode Weights: {learned_mode_weights}")
+        _log.info(f"Rewards: {[r.theta for r in learned_rewards]}")
+        _log.info(f"Model NLL: {nll}")
 
         def mixture_ml_path(mode_weights, models, rewards, s1, sg):
             """Find ML path from start state to goal under a mixture model
@@ -241,7 +255,7 @@ def poto_taxi_forecasting(
             return candidate_paths[path_idx]
 
         # NLL for each path is computed per-reward for efficiency reasons
-        print("Evaluating NLLs...")
+        _log.info("Evaluating NLLs...")
         mode_nlls = []
         for reward in learned_rewards:
             mode_nlls.append(
@@ -250,12 +264,12 @@ def poto_taxi_forecasting(
         nlls = np.average(mode_nlls, axis=0, weights=learned_mode_weights)
 
         # Prepare mixture of inference models
-        print("Preparing mixture for inference...")
+        _log.info("Preparing mixture for inference...")
         models = []
         for r in learned_rewards:
             models.append(PortoInference(xtr, phi, r.theta))
 
-        print("Evaluating ML paths...")
+        _log.info("Evaluating ML paths...")
         paths = []
         fds = []
         pdms = []
@@ -280,14 +294,10 @@ def poto_taxi_forecasting(
             pdms=pdms,
             fds=fds,
             iterations=int(iterations),
-            resp_history=resp_history.tolist(),
-            mode_weights_history=mode_weights_history.tolist(),
-            rewards_history=[
-                learned_r.theta.tolist()
-                for learned_reward_mixture in rewards_history
-                for learned_r in learned_reward_mixture
-            ],
-            nll_history=nll_history.tolist(),
+            learned_resp=learned_resp.tolist(),
+            learned_mode_weights=learned_mode_weights.tolist(),
+            learned_rewards=[learned_r.theta.tolist() for learned_r in learned_rewards],
+            nll=nll,
             reason=reason,
         )
 
@@ -313,7 +323,7 @@ def run(config, mongodb_url="localhost:27017"):
         warnings.filterwarnings(action="ignore", category=PaddedMDPWarning)
 
         # Run the experiment
-        run = ex.run(config_updates=config, options={"--loglevel": "ERROR"})
+        run = ex.run(config_updates=config)  # , options={"--loglevel": "ERROR"})
 
     # Return the result
     return run.result
@@ -358,17 +368,14 @@ def main():
         "--num_replicates",
         required=False,
         type=int,
-        default=10,
+        default=5,
         help="Number of replicates to perform",
     )
 
     args = parser.parse_args()
     print("Arguments:", args, flush=True)
 
-    _base_config = {
-        "num_clusters": args.num_modes,
-        "initialisation": args.init,
-    }
+    _base_config = {"num_clusters": args.num_modes, "initialisation": args.init}
     print("META: Base configuration: ")
     pprint(_base_config)
 
@@ -407,19 +414,19 @@ def main():
             mongodb_url = file.readline()
     print(f"META: MongoDB Server URL: {mongodb_url}")
 
-    # # Parallel loop
-    # with tqdm.tqdm(total=len(configs)) as pbar:
-    #     with futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
-    #         tasks = {executor.submit(run, config, mongodb_url) for config in configs}
-    #         for future in futures.as_completed(tasks):
-    #             # Use arg or result here if desired
-    #             # arg = tasks[future]
-    #             # result = future.result()
-    #             pbar.update(1)
+    # Parallel loop
+    with tqdm.tqdm(total=len(configs)) as pbar:
+        with futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
+            tasks = {executor.submit(run, config, mongodb_url) for config in configs}
+            for future in futures.as_completed(tasks):
+                # Use arg or result here if desired
+                # arg = tasks[future]
+                # result = future.result()
+                pbar.update(1)
 
-    # Non-parallel loop for debugging
-    for config in tqdm.tqdm(configs):
-        run(config, mongodb_url)
+    # # Non-parallel loop for debugging
+    # for config in tqdm.tqdm(configs):
+    #     run(config, mongodb_url)
 
     print("META: Finished replicate sweep")
 
