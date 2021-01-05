@@ -120,22 +120,26 @@ def poto_taxi_forecasting(
             # Query MDP for shortest (distance) path as a baseline
             shortest_path = xtr.shortest_path(s1, sg)
             fds.append(
-                phi.feature_distance_metric(shortest_path, gt_path, gamma=xtr.gamma)
+                float(
+                    phi.feature_distance_metric(shortest_path, gt_path, gamma=xtr.gamma)
+                )
             )
-            pdms.append(xtr.percent_distance_missed_metric(shortest_path, gt_path))
+            pdms.append(
+                float(xtr.percent_distance_missed_metric(shortest_path, gt_path))
+            )
             paths.append(shortest_path)
 
         results = dict(
             # Fill a dummy array with NLL values
             nlls=[np.nan for _ in range(len(rollouts_test))],
-            paths=paths,
+            paths=[np.array(p).tolist() for p in paths],
             pdms=pdms,
             fds=fds,
             iterations=np.nan,
             learned_resp=[],
             learned_mode_weights=[],
             learned_rewards=[],
-            nll=[],
+            nll=np.nan,
             reason="",
         )
 
@@ -283,21 +287,21 @@ def poto_taxi_forecasting(
                 learned_mode_weights, models, learned_rewards, s1, sg
             )
             fds.append(
-                phi.feature_distance_metric(model_path, gt_path, gamma=xtr.gamma)
+                float(phi.feature_distance_metric(model_path, gt_path, gamma=xtr.gamma))
             )
-            pdms.append(xtr.percent_distance_missed_metric(model_path, gt_path))
+            pdms.append(float(xtr.percent_distance_missed_metric(model_path, gt_path)))
             paths.append(model_path)
 
         results = dict(
             nlls=nlls.tolist(),
-            paths=paths,
+            paths=[np.array(p).tolist() for p in paths],
             pdms=pdms,
             fds=fds,
             iterations=int(iterations),
             learned_resp=learned_resp.tolist(),
             learned_mode_weights=learned_mode_weights.tolist(),
             learned_rewards=[learned_r.theta.tolist() for learned_r in learned_rewards],
-            nll=nll,
+            nll=float(nll),
             reason=reason,
         )
 
