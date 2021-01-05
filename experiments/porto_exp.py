@@ -323,8 +323,8 @@ def run(config, mongodb_url="localhost:27017"):
     ex.main(poto_taxi_forecasting)
 
     # Attach MongoDB observer if necessary
-    # if not ex.observers:
-    #     ex.observers.append(MongoObserver(url=mongodb_url))
+    if not ex.observers:
+        ex.observers.append(MongoObserver(url=mongodb_url))
 
     # Suppress warnings about padded MPDs
     with warnings.catch_warnings():
