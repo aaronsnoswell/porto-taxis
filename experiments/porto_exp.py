@@ -53,6 +53,9 @@ def base_config():
     # Number of learned clusters
     num_clusters = 3
 
+    # Maximum number of EM iterations
+    max_iterations = None
+
     # Replicate ID for this experiment
     replicate = 0
 
@@ -66,11 +69,13 @@ def poto_taxi_forecasting(
     em_nll_tolerance,
     maxent_feature_tolerance,
     num_clusters,
+    max_iterations,
     _log,
     _run,
+    _seed,
 ):
 
-    _log.info("Initializing...")
+    _log.info(f"{_seed}: Loading...")
 
     # About 8 seconds to load
     xtr = PortoExtras()
@@ -92,23 +97,21 @@ def poto_taxi_forecasting(
     rollouts_train = short_rollouts[0 : len(short_rollouts) // 2]
     rollouts_test = short_rollouts[len(short_rollouts) // 2 :]
     _log.info(
-        f"Got set of {len(rollouts_train)} training rollouts, {len(rollouts_test)} testing rollouts"
+        f"{_seed}: Got set of {len(rollouts_train)} training rollouts, {len(rollouts_test)} testing rollouts"
     )
     _log.info(
-        "Max training path length is {}".format(
-            np.max([len(r) for r in rollouts_train])
-        )
+        f"{_seed}: Max training path length is {np.max([len(r) for r in rollouts_train])}"
     )
 
     # Truncate testing path set
     rollouts_test = rollouts_test[0:max_num_testpaths]
 
-    _log.info("Solving...")
+    _log.info(f"{_seed}: Solving...")
     if initialisation == "Baseline":
 
         # Run shortest path baseline
 
-        _log.info("Evaluating ML paths...")
+        _log.info(f"{_seed}: Evaluating ML paths...")
         paths = []
         fds = []
         pdms = []
@@ -152,14 +155,14 @@ def poto_taxi_forecasting(
         xtr_p, rollouts_p_train = padding_trick(xtr, rollouts_train)
 
         # Prep solver
-        _log.info("Loading MaxEnt solver...")
+        _log.info(f"{_seed}: Loading MaxEnt solver...")
         solver = MaxEntEMSolver(
             # LBFGS convergence threshold (units of km)
             minimize_kwargs=dict(tol=maxent_feature_tolerance),
-            minimize_options=dict(disp=True),
+            pre_it=lambda i: _log.info(f"{_seed}: Starting iteration {i}"),
         )
 
-        _log.info("Initializing Mixture...")
+        _log.info(f"{_seed}: Initializing Mixture...")
         if initialisation == "Random":
             # Initialize randomly
             init_mode_weights, init_rewards = solver.init_random(
@@ -188,7 +191,7 @@ def poto_taxi_forecasting(
         else:
             raise ValueError()
 
-        _log.info("BV EM Loop...")
+        _log.info(f"{_seed}: BV EM Loop...")
         (
             iterations,
             resp_history,
@@ -206,6 +209,7 @@ def poto_taxi_forecasting(
             mode_weights=init_mode_weights,
             rewards=init_rewards,
             tolerance=em_nll_tolerance,
+            max_iterations=max_iterations,
         )
         iterations = len(resp_history)
         learned_resp = resp_history[-1]
@@ -223,12 +227,12 @@ def poto_taxi_forecasting(
         for _nll in nll_history:
             _run.log_scalar("training.nll", float(_nll))
 
-        _log.info(f"Iterations: {iterations}")
-        _log.info("Responsibility Matrix")
+        _log.info(f"{_seed}: Iterations: {iterations}")
+        _log.info(f"{_seed}: Responsibility Matrix")
         _log.info(learned_resp)
-        _log.info(f"Mode Weights: {learned_mode_weights}")
-        _log.info(f"Rewards: {[r.theta for r in learned_rewards]}")
-        _log.info(f"Model NLL: {nll}")
+        _log.info(f"{_seed}: Mode Weights: {learned_mode_weights}")
+        _log.info(f"{_seed}: Rewards: {[r.theta for r in learned_rewards]}")
+        _log.info(f"{_seed}: Model NLL: {nll}")
 
         def mixture_ml_path(mode_weights, models, rewards, s1, sg):
             """Find ML path from start state to goal under a mixture model
@@ -268,12 +272,12 @@ def poto_taxi_forecasting(
         nlls = np.average(mode_nlls, axis=0, weights=learned_mode_weights)
 
         # Prepare mixture of inference models
-        _log.info("Preparing mixture for inference...")
+        _log.info(f"{_seed}: Preparing mixture for inference...")
         models = []
         for r in learned_rewards:
             models.append(PortoInference(xtr, phi, r.theta))
 
-        _log.info("Evaluating ML paths...")
+        _log.info(f"{_seed}: Evaluating ML paths...")
         paths = []
         fds = []
         pdms = []
@@ -305,7 +309,7 @@ def poto_taxi_forecasting(
             reason=reason,
         )
 
-    _log.info("Done")
+    _log.info(f"{_seed}: Done")
 
     return results
 
@@ -319,8 +323,8 @@ def run(config, mongodb_url="localhost:27017"):
     ex.main(poto_taxi_forecasting)
 
     # Attach MongoDB observer if necessary
-    if not ex.observers:
-        ex.observers.append(MongoObserver(url=mongodb_url))
+    # if not ex.observers:
+    #     ex.observers.append(MongoObserver(url=mongodb_url))
 
     # Suppress warnings about padded MPDs
     with warnings.catch_warnings():
@@ -368,6 +372,15 @@ def main():
     )
 
     parser.add_argument(
+        "-m",
+        "--max_iterations",
+        required=False,
+        type=int,
+        default=None,
+        help="Maximum number of EM iterations",
+    )
+
+    parser.add_argument(
         "-N",
         "--num_replicates",
         required=False,
@@ -379,7 +392,11 @@ def main():
     args = parser.parse_args()
     print("Arguments:", args, flush=True)
 
-    _base_config = {"num_clusters": args.num_modes, "initialisation": args.init}
+    _base_config = {
+        "num_clusters": args.num_modes,
+        "initialisation": args.init,
+        "max_iterations": args.max_iterations,
+    }
     print("META: Base configuration: ")
     pprint(_base_config)
 
