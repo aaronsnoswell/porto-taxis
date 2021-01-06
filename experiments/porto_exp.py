@@ -60,6 +60,35 @@ def base_config():
     replicate = 0
 
 
+def mixture_ml_path(xtr, phi, mode_weights, models, rewards, s1, sg):
+    """Find ML path from start state to goal under a mixture model
+    
+    Solving the actual optimization problem for the true ML path is *hard*.
+    Instead, we choose the path that has the highest likelihood under it's personal
+    mixture component. See the paper for details.
+    
+    Args:
+        mode_weights (numpy array): Weights for each mixture component
+        models (list): List of PortoInference() models - one for each mixture
+            component
+        rewards (list): List of Lienar() - one for each mixture component
+        s1 (int): Starting state
+        sg (int): Goal state
+    """
+    candidate_paths = []
+    candidate_path_probs = []
+
+    for rho, mdl, reward in zip(mode_weights, models, rewards):
+        path = mdl.ml_path(s1, sg)
+        path_prob = rho * np.exp(maxent_path_logprobs(xtr, phi, reward, [path]))
+        candidate_paths.append(path)
+        candidate_path_probs.append(path_prob)
+
+    # Select the highest probability path
+    path_idx = np.argmax(candidate_path_probs)
+    return candidate_paths[path_idx]
+
+
 def poto_taxi_forecasting(
     initialisation,
     rollout_minmaxlen,
@@ -133,6 +162,12 @@ def poto_taxi_forecasting(
             paths.append(shortest_path)
 
         results = dict(
+            # We don't store any initial solution values for baseline models
+            init_mode_weights=[],
+            init_rewards=[],
+            init_paths=[],
+            init_fds=[],
+            init_pdms=[],
             # Fill a dummy array with NLL values
             nlls=[np.nan for _ in range(len(rollouts_test))],
             paths=[np.array(p).tolist() for p in paths],
@@ -191,6 +226,44 @@ def poto_taxi_forecasting(
         else:
             raise ValueError()
 
+        # ============================================ Evaluate initial mixture model
+
+        # NLL for each path is computed per-reward for efficiency reasons
+        _log.info("Evaluating initial model NLLs...")
+        maxent_path_logprobs
+
+        # Prepare mixture of inference models
+        _log.info(f"{_seed}: Preparing initial mixture for inference...")
+        init_models = []
+        for r in init_rewards:
+            init_models.append(PortoInference(xtr, phi, r.theta))
+
+        init_paths = []
+        init_fds = []
+        init_pdms = []
+        for gt_path in rollouts_test:  # tqdm.tqdm(rollouts_test):
+            # Get start, end state
+            s1 = gt_path[0][0]
+            sg = gt_path[-1][0]
+
+            # Query mixture model for ML path
+            init_model_path = mixture_ml_path(
+                xtr, phi, init_mode_weights, init_models, init_rewards, s1, sg
+            )
+            init_fds.append(
+                float(
+                    phi.feature_distance_metric(
+                        init_model_path, gt_path, gamma=xtr.gamma
+                    )
+                )
+            )
+            init_pdms.append(
+                float(xtr.percent_distance_missed_metric(init_model_path, gt_path))
+            )
+            init_paths.append(init_model_path)
+
+        # ============================================ Run actual BV EM algorithm
+
         _log.info(f"{_seed}: BV EM Loop...")
         (
             iterations,
@@ -234,33 +307,7 @@ def poto_taxi_forecasting(
         _log.info(f"{_seed}: Rewards: {[r.theta for r in learned_rewards]}")
         _log.info(f"{_seed}: Model NLL: {nll}")
 
-        def mixture_ml_path(mode_weights, models, rewards, s1, sg):
-            """Find ML path from start state to goal under a mixture model
-            
-            Solving the actual optimization problem for the true ML path is *hard*.
-            Instead, we choose the path that has the highest likelihood under it's personal
-            mixture component. See the paper for details.
-            
-            Args:
-                mode_weights (numpy array): Weights for each mixture component
-                models (list): List of PortoInference() models - one for each mixture
-                    component
-                rewards (list): List of Lienar() - one for each mixture component
-                s1 (int): Starting state
-                sg (int): Goal state
-            """
-            candidate_paths = []
-            candidate_path_probs = []
-
-            for rho, mdl, reward in zip(mode_weights, models, rewards):
-                path = mdl.ml_path(s1, sg)
-                path_prob = rho * np.exp(maxent_path_logprobs(xtr, phi, reward, [path]))
-                candidate_paths.append(path)
-                candidate_path_probs.append(path_prob)
-
-            # Select the highest probability path
-            path_idx = np.argmax(candidate_path_probs)
-            return candidate_paths[path_idx]
+        # ============================================ Evaluate trained model
 
         # NLL for each path is computed per-reward for efficiency reasons
         _log.info("Evaluating NLLs...")
@@ -288,7 +335,7 @@ def poto_taxi_forecasting(
 
             # Query mixture model for ML path
             model_path = mixture_ml_path(
-                learned_mode_weights, models, learned_rewards, s1, sg
+                xtr, phi, learned_mode_weights, models, learned_rewards, s1, sg
             )
             fds.append(
                 float(phi.feature_distance_metric(model_path, gt_path, gamma=xtr.gamma))
@@ -297,6 +344,12 @@ def poto_taxi_forecasting(
             paths.append(model_path)
 
         results = dict(
+            # Store initial solution values for baseline models
+            init_nlls=init_nlls,
+            init_paths=init_paths,
+            init_fds=init_fds,
+            init_pdms=init_pdms,
+            #
             nlls=nlls.tolist(),
             paths=[np.array(p).tolist() for p in paths],
             pdms=pdms,
