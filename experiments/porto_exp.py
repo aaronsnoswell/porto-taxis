@@ -60,35 +60,6 @@ def base_config():
     replicate = 0
 
 
-def mixture_ml_path(xtr, phi, mode_weights, models, rewards, s1, sg):
-    """Find ML path from start state to goal under a mixture model
-    
-    Solving the actual optimization problem for the true ML path is *hard*.
-    Instead, we choose the path that has the highest likelihood under it's personal
-    mixture component. See the paper for details.
-    
-    Args:
-        mode_weights (numpy array): Weights for each mixture component
-        models (list): List of PortoInference() models - one for each mixture
-            component
-        rewards (list): List of Lienar() - one for each mixture component
-        s1 (int): Starting state
-        sg (int): Goal state
-    """
-    candidate_paths = []
-    candidate_path_probs = []
-
-    for rho, mdl, reward in zip(mode_weights, models, rewards):
-        path = mdl.ml_path(s1, sg)
-        path_prob = rho * np.exp(maxent_path_logprobs(xtr, phi, reward, [path]))
-        candidate_paths.append(path)
-        candidate_path_probs.append(path_prob)
-
-    # Select the highest probability path
-    path_idx = np.argmax(candidate_path_probs)
-    return candidate_paths[path_idx]
-
-
 def poto_taxi_forecasting(
     initialisation,
     rollout_minmaxlen,
