@@ -14,10 +14,15 @@ from concurrent import futures
 from sacred import Experiment
 from sacred.observers import MongoObserver
 
-from porto_taxis import PortoExtras, PortoFeatures, PortoInference
+from porto_taxis import (
+    PortoExtras,
+    PortoFeatures,
+    eval_mixture,
+    eval_shortest_path,
+    save_eval_results,
+)
 
 from pprint import pprint
-from unimodal_irl import maxent_path_logprobs
 from multimodal_irl.bv_em import MaxEntEMSolver, bv_em
 
 from mdp_extras import padding_trick, PaddedMDPWarning
@@ -36,10 +41,6 @@ def base_config():
 
     # Number of restarts to use for non-random initializations
     num_init_restarts = 5000
-
-    # Maximum number of paths to use for testing
-    # Each test path takes about 30 seconds to evaluate
-    max_num_testpaths = 250
 
     # Tolerance for Negative Log Likelihood convergence
     em_nll_tolerance = 1e-2
@@ -60,11 +61,10 @@ def base_config():
     replicate = 0
 
 
-def poto_taxi_forecasting(
+def poto_taxi_forecasting_v2(
     initialisation,
     rollout_minmaxlen,
     num_init_restarts,
-    max_num_testpaths,
     reward_range,
     em_nll_tolerance,
     maxent_feature_tolerance,
@@ -74,6 +74,7 @@ def poto_taxi_forecasting(
     _run,
     _seed,
 ):
+    result_fname = f"{_seed}.results"
 
     _log.info(f"{_seed}: Loading...")
     xtr = PortoExtras()
@@ -91,6 +92,7 @@ def poto_taxi_forecasting(
     random.shuffle(short_rollouts)
     rollouts_train = short_rollouts[0 : len(short_rollouts) // 2]
     rollouts_test = short_rollouts[len(short_rollouts) // 2 :]
+
     _log.info(
         f"{_seed}: Got set of {len(rollouts_train)} training rollouts, {len(rollouts_test)} testing rollouts"
     )
@@ -98,58 +100,24 @@ def poto_taxi_forecasting(
         f"{_seed}: Max training path length is {np.max([len(r) for r in rollouts_train])}"
     )
 
-    # Truncate testing path set
-    rollouts_test = rollouts_test[0:max_num_testpaths]
-
     _log.info(f"{_seed}: Solving...")
     if initialisation == "Baseline":
-
-        # Run shortest path baseline
-
-        _log.info(f"{_seed}: Evaluating ML paths...")
-        paths = []
-        fds = []
-        pdms = []
-        for gt_path in tqdm.tqdm(rollouts_test):
-            # Get start, end state
-            s1 = gt_path[0][0]
-            sg = gt_path[-1][0]
-
-            # Query MDP for shortest (distance) path as a baseline
-            shortest_path = xtr.shortest_path(s1, sg)
-            fds.append(
-                float(
-                    phi.feature_distance_metric(shortest_path, gt_path, gamma=xtr.gamma)
-                )
-            )
-            pdms.append(
-                float(xtr.percent_distance_missed_metric(shortest_path, gt_path))
-            )
-            paths.append(shortest_path)
-
-        results = dict(
-            # We don't store any initial solution values for baseline models
-            init_mode_weights=[],
-            init_rewards=[],
-            init_paths=[],
-            init_fds=[],
-            init_pdms=[],
-            # Fill a dummy array with NLL values
-            nlls=[np.nan for _ in range(len(rollouts_test))],
-            paths=[np.array(p).tolist() for p in paths],
-            pdms=pdms,
-            fds=fds,
-            iterations=np.nan,
-            learned_resp=[],
-            learned_mode_weights=[],
-            learned_rewards=[],
-            nll=np.nan,
-            reason="",
+        learned_nlls, learned_paths, learned_fds, learned_pdms = eval_shortest_path(
+            xtr, phi, rollouts_test
         )
+        save_eval_results(
+            result_fname,
+            learned_nlls=learned_nlls,
+            learned_paths=learned_paths,
+            learned_fds=learned_fds,
+            learned_pdms=learned_pdms,
+        )
+        _run.add_artifact(result_fname)
+        os.remove(result_fname)
+        return np.nan
 
     else:
         # Run MM-IRL experiment
-
         assert initialisation in ("Random", "KMeans", "GMM")
 
         # Apply padding trick
@@ -161,6 +129,7 @@ def poto_taxi_forecasting(
             # LBFGS convergence threshold (units of km)
             minimize_kwargs=dict(tol=maxent_feature_tolerance),
             pre_it=lambda i: _log.info(f"{_seed}: Starting iteration {i}"),
+            # parallel_executor=futures.ThreadPoolExecutor(num_clusters),
         )
 
         _log.info(f"{_seed}: Initializing Mixture...")
@@ -192,44 +161,13 @@ def poto_taxi_forecasting(
         else:
             raise ValueError()
 
-        # ============================================ Evaluate initial mixture model
+        # Evaluate initial mixture model
+        _log.info(f"{_seed}: Evaluating initial solution...")
+        init_nlls, init_paths, init_fds, init_pdms = eval_mixture(
+            xtr, phi, init_mode_weights, init_rewards, rollouts_test
+        )
 
-        # NLL for each path is computed per-reward for efficiency reasons
-        _log.info("Evaluating initial model NLLs...")
-        maxent_path_logprobs
-
-        # Prepare mixture of inference models
-        _log.info(f"{_seed}: Preparing initial mixture for inference...")
-        init_models = []
-        for r in init_rewards:
-            init_models.append(PortoInference(xtr, phi, r.theta))
-
-        init_paths = []
-        init_fds = []
-        init_pdms = []
-        for gt_path in rollouts_test:  # tqdm.tqdm(rollouts_test):
-            # Get start, end state
-            s1 = gt_path[0][0]
-            sg = gt_path[-1][0]
-
-            # Query mixture model for ML path
-            init_model_path = mixture_ml_path(
-                xtr, phi, init_mode_weights, init_models, init_rewards, s1, sg
-            )
-            init_fds.append(
-                float(
-                    phi.feature_distance_metric(
-                        init_model_path, gt_path, gamma=xtr.gamma
-                    )
-                )
-            )
-            init_pdms.append(
-                float(xtr.percent_distance_missed_metric(init_model_path, gt_path))
-            )
-            init_paths.append(init_model_path)
-
-        # ============================================ Run actual BV EM algorithm
-
+        # Run actual BV EM algorithm
         _log.info(f"{_seed}: BV EM Loop...")
         (
             iterations,
@@ -250,19 +188,13 @@ def poto_taxi_forecasting(
             tolerance=em_nll_tolerance,
             max_iterations=max_iterations,
         )
-        iterations = len(resp_history)
+        iterations = int(len(resp_history))
         learned_resp = resp_history[-1]
         learned_mode_weights = mode_weights_history[-1]
         learned_rewards = rewards_history[-1]
-        nll = nll_history[-1]
+        nll = float(nll_history[-1])
 
-        # Log training values NLLs as metrics
-        for _learned_mode_weights in mode_weights_history:
-            _run.log_scalar("training.mode_weights", _learned_mode_weights.tolist())
-        for _learned_rewards in rewards_history:
-            _run.log_scalar(
-                "training.rewards", [r.theta.tolist() for r in _learned_rewards]
-            )
+        # Log training NLLs as a metric
         for _nll in nll_history:
             _run.log_scalar("training.nll", float(_nll))
 
@@ -273,64 +205,34 @@ def poto_taxi_forecasting(
         _log.info(f"{_seed}: Rewards: {[r.theta for r in learned_rewards]}")
         _log.info(f"{_seed}: Model NLL: {nll}")
 
-        # ============================================ Evaluate trained model
+        # Evaluate trained model
+        _log.info(f"{_seed}: Evaluating trained model...")
+        learned_nlls, learned_paths, learned_fds, learned_pdms = eval_mixture(
+            xtr, phi, init_mode_weights, init_rewards, rollouts_test
+        )
 
-        # NLL for each path is computed per-reward for efficiency reasons
-        _log.info("Evaluating NLLs...")
-        mode_nlls = []
-        for reward in learned_rewards:
-            mode_nlls.append(
-                -1.0 * maxent_path_logprobs(xtr, phi, reward, rollouts_test)
-            )
-        nlls = np.average(mode_nlls, axis=0, weights=learned_mode_weights)
-
-        # Prepare mixture of inference models
-        _log.info(f"{_seed}: Preparing mixture for inference...")
-        models = []
-        for r in learned_rewards:
-            models.append(PortoInference(xtr, phi, r.theta))
-
-        _log.info(f"{_seed}: Evaluating ML paths...")
-        paths = []
-        fds = []
-        pdms = []
-        for gt_path in tqdm.tqdm(rollouts_test):
-            # Get start, end state
-            s1 = gt_path[0][0]
-            sg = gt_path[-1][0]
-
-            # Query mixture model for ML path
-            model_path = mixture_ml_path(
-                xtr, phi, learned_mode_weights, models, learned_rewards, s1, sg
-            )
-            fds.append(
-                float(phi.feature_distance_metric(model_path, gt_path, gamma=xtr.gamma))
-            )
-            pdms.append(float(xtr.percent_distance_missed_metric(model_path, gt_path)))
-            paths.append(model_path)
-
-        results = dict(
-            # Store initial solution values for baseline models
+        save_eval_results(
             init_nlls=init_nlls,
             init_paths=init_paths,
             init_fds=init_fds,
             init_pdms=init_pdms,
-            #
-            nlls=nlls.tolist(),
-            paths=[np.array(p).tolist() for p in paths],
-            pdms=pdms,
-            fds=fds,
-            iterations=int(iterations),
-            learned_resp=learned_resp.tolist(),
-            learned_mode_weights=learned_mode_weights.tolist(),
-            learned_rewards=[learned_r.theta.tolist() for learned_r in learned_rewards],
-            nll=float(nll),
+            learned_nlls=learned_nlls,
+            learned_paths=learned_paths,
+            learned_fds=learned_fds,
+            learned_pdms=learned_pdms,
+            iterations=iterations,
+            learned_resp=learned_resp,
+            learned_mode_weights=learned_mode_weights,
+            learned_rewards=learned_rewards,
+            nll=nll,
             reason=reason,
         )
+        _run.add_artifact(result_fname)
+        os.remove(result_fname)
 
     _log.info(f"{_seed}: Done")
 
-    return results
+    return float(nll)
 
 
 def run(config, mongodb_url="localhost:27017"):
@@ -339,7 +241,7 @@ def run(config, mongodb_url="localhost:27017"):
     # Dynamically bind experiment config and main function
     ex = Experiment()
     ex.config(base_config)
-    ex.main(poto_taxi_forecasting)
+    ex.main(poto_taxi_forecasting_v2)
 
     # Attach MongoDB observer if necessary
     if not ex.observers:
@@ -464,7 +366,7 @@ def main():
                 # result = future.result()
                 pbar.update(1)
 
-    # # Non-parallel loop for debugging
+    # Non-parallel loop for debugging
     # for config in tqdm.tqdm(configs):
     #     run(config, mongodb_url)
 
