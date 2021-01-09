@@ -42,7 +42,7 @@ def base_config():
     max_num_testpaths = 250
 
     # Tolerance for Negative Log Likelihood convergence
-    em_nll_tolerance = 1e-3
+    em_nll_tolerance = 1e-2
 
     # Minimum and maximum reward parameter values
     reward_range = (-10, 0)
