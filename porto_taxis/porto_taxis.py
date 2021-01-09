@@ -479,6 +479,93 @@ def mixture_ml_paths(xtr, phi, mode_weights, rewards, demonstrations):
 
     return mixture_maxlik_paths
 
+
+def eval_mixture(xtr, phi, mode_weights, rewards, demonstrations):
+    """Evaluate a porto mixture model
+    
+    Args:
+        xtr (PortoExtras): Extras object
+        phi (PortoFeatures): Features object
+        mode_weights (numpy array): Weights for each mixture component
+        rewards (list): List of mdp_extras.Linear() - one for each mixture component
+            generated from the start state to the end state of each of these.
+        demonstrations (list): List of demonstration paths - for each demo path an ML
+            path will be generated from the mixture.
+    
+    Returns:
+        (list): List of negative log likelihood for each demonstration under the mixture
+        (list): List of maximum likelihood path predictions, one for each demonstration
+        (list): List of feature distance scores, one for each demonstration
+        (list): List of % distance missed scores, one for each demonstration
+    """
+
+    # Compute the mixture NLL for each demonstration
+    learned_nlls = np.average(
+        [
+            -1.0 * maxent_path_logprobs(xtr, phi, reward, demonstrations)
+            for reward in rewards
+        ],
+        axis=0,
+        weights=mode_weights,
+    ).tolist()
+
+    # Get ML path predictions from the mixture
+    # Convert path (s, a) tuples to list for better BSON storage in MongoDB
+    learned_paths = mixture_ml_paths(xtr, phi, mode_weights, rewards, demonstrations)
+
+    # Measure feature distance
+    learned_fds = [
+        float(phi.feature_distance_metric(learned_path, gt_path, gamma=xtr.gamma))
+        for gt_path, learned_path in zip(demonstrations, learned_paths)
+    ]
+
+    # Measure percentage distance missed
+    learned_pdms = [
+        float(xtr.percent_distance_missed_metric(learned_path, gt_path))
+        for gt_path, learned_path in zip(demonstrations, learned_paths)
+    ]
+
+    return learned_nlls, learned_paths, learned_fds, learned_pdms
+
+
+def eval_shortest_path(xtr, phi, demonstrations):
+    """Evaluate a shortest path Porto baseline - analogous to eval_mixture()
+    
+    Args:
+        xtr (PortoExtras): Extras object
+        phi (PortoFeatures): Features object
+        demonstrations (list): List of demonstration paths - for each demo path an ML
+            path will be generated from the mixture.
+    
+    Returns:
+        (list): List of negative log likelihood for each demonstration under the mixture
+        (list): List of maximum likelihood path predictions, one for each demonstration
+        (list): List of feature distance scores, one for each demonstration
+        (list): List of % distance missed scores, one for each demonstration
+    """
+
+    # Fill NLLs with NaN
+    learned_nlls = [np.nan for _ in range(len(demonstrations))]
+
+    # Run shortest path baseline
+    learned_paths = [
+        xtr.shortest_path(gt_path[0][0], gt_path[-1][0]) for gt_path in demonstrations
+    ]
+
+    # Measure feature distance
+    learned_fds = [
+        float(phi.feature_distance_metric(learned_path, gt_path, gamma=xtr.gamma))
+        for gt_path, learned_path in zip(demonstrations, learned_paths)
+    ]
+
+    # Measure percentage distance missed
+    learned_pdms = [
+        float(xtr.percent_distance_missed_metric(learned_path, gt_path))
+        for gt_path, learned_path in zip(demonstrations, learned_paths)
+    ]
+
+    return learned_nlls, learned_paths, learned_fds, learned_pdms
+
 def main():
     """Main function"""
     pass
