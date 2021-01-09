@@ -76,13 +76,8 @@ def poto_taxi_forecasting(
 ):
 
     _log.info(f"{_seed}: Loading...")
-
-    # About 8 seconds to load
     xtr = PortoExtras()
-    # About 35 seconds to load
     phi = PortoFeatures(xtr=xtr)
-
-    # About 0.6 second to load
     bin_prefix = os.path.join(os.path.dirname(__file__), "..", "porto_taxis", "bin")
     with open(os.path.join(bin_prefix, "path-data.pkl"), "rb") as file:
         all_rollouts = pickle.load(file)
