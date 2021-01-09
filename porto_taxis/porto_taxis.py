@@ -426,6 +426,59 @@ class PortoInference:
         return lc
 
 
+def mixture_ml_paths(xtr, phi, mode_weights, rewards, demonstrations):
+    """Find ML paths efficiently under a mixture model
+    
+    Solving the actual optimization problem for the true ML path is *hard*.
+    Instead, we choose the path that has the highest likelihood under it's personal
+    mixture component. See the paper for details.
+    
+    Args:
+        xtr (PortoExtras): Extras object
+        phi (PortoFeatures): Features object
+        mode_weights (numpy array): Weights for each mixture component
+        rewards (list): List of mdp_extras.Linear() - one for each mixture component
+            generated from the start state to the end state of each of these.
+        demonstrations (list): List of demonstration paths - for each demo path an ML
+            path will be generated from the mixture.
+    
+    Returns:
+        (list): List of ML paths from the mixture model - one for each demonstration
+            path's start/end state
+    """
+
+    # Pad dynamics for partition computation
+    xtr_padded, demonstrations_padded = padding_trick(xtr, demonstrations)
+
+    # Perform model inference to get (approximate) ML path under the mixture model
+    mixture_paths = []
+    mixture_path_probs = []
+    for mode_idx, (mode_weight, reward) in enumerate(zip(mode_weights, rewards)):
+        # Get ML paths under this model
+        mdl = PortoInference(xtr, phi, reward.theta)
+        mdl_paths = []
+        for gt_demo in demonstrations:
+            mdl_paths.append(mdl.ml_path(gt_demo[0][0], gt_demo[-1][0]))
+
+        # Compute probs of (padded) ml paths under this model
+        mdl_path_probs = np.exp(
+            maxent_path_logprobs(
+                xtr_padded, phi, reward, padding_trick(xtr, mdl_paths)[1]
+            )
+        )
+
+        mixture_paths.append(mdl_paths)
+        # Down-weight this model's probabilities by the mode weight
+        mixture_path_probs.append(mode_weight * mdl_path_probs)
+
+    # Select the most likely path for each instance
+    mixture_maxlik_paths_idx = np.argmax(mixture_path_probs, axis=0)
+    mixture_maxlik_paths = []
+    for path_num, mixture_idx in enumerate(mixture_maxlik_paths_idx):
+        mixture_maxlik_paths.append(mixture_paths[mixture_idx][path_num])
+
+    return mixture_maxlik_paths
+
 def main():
     """Main function"""
     pass
