@@ -381,30 +381,6 @@ class PortoInference:
         node_path = nx.shortest_path(self.rg, source=n1, target=ng, weight="nll")
         return self.xtr.n2s_path(node_path)
 
-    def evaluate(self, dataset):
-        """Evaluate a model on a dataset
-        
-        Args:
-            dataset (list): List of (s, a) paths to evaluate against
-        
-        Returns:
-            (list): List of feature distance metric for each path
-            (list): List of percentage distance missed metric for each path
-        """
-        fds = []
-        pdms = []
-        for gt_path in tqdm.tqdm(dataset):
-            start_state = gt_path[0][0]
-            end_state = gt_path[-1][0]
-            model_path = self.ml_path(start_state, end_state)
-            fds.append(
-                self.phi.feature_distance_metric(
-                    model_path, gt_path, gamma=self.xtr.gamma
-                )
-            )
-            pdms.append(self.xtr.percent_distance_missed_metric(model_path, gt_path))
-        return fds, pdms
-
     def plot_reward(self, ax=None, logscale=False, **kwargs):
         """Plot the reward function"""
 
