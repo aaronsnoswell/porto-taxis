@@ -11,10 +11,11 @@ import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 
 from mdp_extras.utils import PaddedMDPWarning
-from mdp_extras import DiscreteImplicitExtras, FeatureFunction, padding_trick, Linear
+from mdp_extras import DiscreteImplicitExtras, FeatureFunction, padding_trick
 
 from porto_taxis.utils import nonoverlapping_shared_subsequences, geoid_dist
 
+from unimodal_irl import maxent_path_logprobs
 
 PORTO_CBD_LATLON = np.array([41.1480637, -8.6329584])
 
@@ -23,10 +24,12 @@ class PortoExtras(DiscreteImplicitExtras):
     """Extras object for the Porto MDP"""
 
     def __init__(self, bin_prefix=os.path.join(os.path.dirname(__file__), "bin")):
-        """C-tor"""
+        """C-tor - takes about 11 seconds"""
 
         # About 3 seconds to load
-        with open(os.path.join(bin_prefix, "porto-road-graph.pkl"), "rb") as file:
+        with open(
+            os.path.join(bin_prefix, "porto-road-graph-updated.pkl"), "rb"
+        ) as file:
             self.rg = pickle.load(file)
 
         # Nodes are tuples of OpenStreetMaps object IDs indicating a start and end node
@@ -40,19 +43,6 @@ class PortoExtras(DiscreteImplicitExtras):
         self._edges = list(self.rg.edges)
         self._actions = list(range(len(self._edges)))
         self._edge2action = {e: a for e, a in zip(self._edges, self._actions)}
-
-        # Store state distances (in km) on edges so we can do shortest path inference
-        for e in self.rg.edges:
-            n1, n2 = e
-            self.rg.edges[e]["distance"] = (
-                max(self.rg.nodes[n1]["distance"], self.rg.nodes[n2]["distance"])
-                / 1000.0
-            )
-
-        # self._transitions = []
-        # for (n1, n2) in self._edges:
-        #     self._transitions.append([self._node2state[n1], self._node2state[n2]])
-        # self._transitions = np.array(self._transitions)
 
         # Set initial state distribution to uniform
         self._p0s = np.ones(len(self._states)) / len(self._states)
@@ -226,37 +216,24 @@ class PortoFeatures(FeatureFunction):
     EARTH_CIRCUMFERNCE_KM = 2 * np.pi * (6371.0)
 
     def __init__(
-        self,
-        xtr=None,
-        feature_names=["type", "speed",],
-        use_geo=True,
-        bin_prefix=os.path.join(os.path.dirname(__file__), "bin"),
+        self, xtr, feature_names=["type", "speed",], use_geo=True,
     ):
         """C-tor
         
         Args:
-            xtr (PortoExtras): Optional extras object to avoid re-loading road graph
-                from disk
+            xtr (PortoExtras): Extras object
             feature_names (list): List of features in the road graph nodes to use.
                 Options are 'type', 'speed', 'lanes', 'toll', however we recommend only
                 using 'type' and 'speed' - lanes and toll are highly correlated with
                 the first two options.
             use_geo (bool): If true, generate geographical features as well
-            bin_prefix (str): Optional path to the 'bin' folder containing
-                porto-road-graph.pkl
         """
 
         # Porto uses state-based features
         super().__init__(self.Type.OBSERVATION)
 
         self._use_geo = use_geo
-
-        if xtr is not None:
-            self.rg = xtr.rg.copy()
-        else:
-            # About 3 seconds to load
-            with open(os.path.join(bin_prefix, "porto-road-graph.pkl"), "rb") as file:
-                self.rg = pickle.load(file)
+        self.rg = xtr.rg
 
         # Enumerate possible feature values from graph
         self.feature_names = feature_names
@@ -279,21 +256,21 @@ class PortoFeatures(FeatureFunction):
                 self.dimension_names.append(f"Region-{geo_zone}")
 
         # Pre-compute and cache feature vectors for fast retrieval
-        # About 5 seconds to do this
+        self.angle_dist = lambda a, b: np.min(
+            [2 * np.pi - np.abs(a - b), np.abs(a - b)], axis=0
+        )
+        self.geo_angles = np.array(list(self.GEO_ZONES.values())[1:])
         self._feat_vals = np.array([self._compute(n) for n in self.rg.nodes])
 
     def _node_geovec(self, node):
-        """Compute geographical descriptor vector from a node
-        
-        We use a flat-earth approximation, which is fairly good as our GPS coordinates
-        vary by less than 30km, and we're not too close to a pole.
-        """
+        """Compute geographical descriptor vector from a node"""
         node_props = self.rg.nodes[node]
 
         # Nodes have tuple properties 'start_latlon' and 'end_latlon' - average to get
         # an approximate lat, lon for this road segment
-        node_latlon = np.mean(
-            np.array([node_props["start_latlon"], node_props["end_latlon"]]), axis=0
+        node_latlon = (
+            (node_props["start_latlon"][0] + node_props["end_latlon"][0]) / 2.0,
+            (node_props["start_latlon"][1] + node_props["end_latlon"][1]) / 2.0,
         )
 
         # GPS delta vector
@@ -303,21 +280,15 @@ class PortoFeatures(FeatureFunction):
         # cbd_dist = np.linalg.norm(cbd_delta / 360.0 * self.EARTH_CIRCUMFERNCE_KM)
         cbd_dist = geoid_dist(*node_latlon, *PORTO_CBD_LATLON)
 
-        # Angle in radians of the vector from CBD to this road, where due east is 0, CCW is +ve
-        cbd_angle = np.arctan2(cbd_delta[0], cbd_delta[1])
-
         # Geo Zones are: Central, N, NE, ...
         geo_vec = np.zeros(len(self.GEO_ZONES))
         if cbd_dist <= self.GEO_ZONES["Central"]:
             geo_vec[0] = 1.0
         else:
-            geo_angles = np.array(list(self.GEO_ZONES.values())[1:])
-            angle_dist = lambda a, b: min((2 * np.pi) - abs(a - b), abs(a - b))
-            angle_distances = [
-                angle_dist(cbd_angle, geo_angle) for geo_angle in geo_angles
-            ]
-            geo_zone_idx = np.argmin(angle_distances) + 1
-            geo_vec[geo_zone_idx] = 1.0
+            # Angle in radians of the vector from CBD to this road, where due east is 0, CCW is +ve
+            cbd_angle = np.arctan2(cbd_delta[0], cbd_delta[1])
+            geo_zone_idx = np.argmin(self.angle_dist(cbd_angle, self.geo_angles))
+            geo_vec[geo_zone_idx + 1] = 1.0
         return geo_vec
 
     def _compute(self, node):
@@ -336,9 +307,8 @@ class PortoFeatures(FeatureFunction):
             # Add feature for geographic region
             sub_vecs.append(self._node_geovec(node))
 
-        # The distances stored in the road graph are meters
-        # To get feature expectations closer to 1.0 we re-scale to km
-        phi = np.concatenate(sub_vecs) * node_props["distance"] / 1000.0
+        # The distances stored in the road graph are km
+        phi = np.concatenate(sub_vecs) * node_props["distance"]
         return phi
 
     def __len__(self):
@@ -380,7 +350,7 @@ class PortoFeatures(FeatureFunction):
 
 
 class PortoInference:
-    """Container object to do inference and evaluation with a trained model"""
+    """Container object to do inference with a single model"""
 
     def __init__(self, xtr, phi, reward_parameters):
         self.xtr = xtr
