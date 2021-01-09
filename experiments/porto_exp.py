@@ -6,7 +6,7 @@ import random
 import argparse
 import warnings
 
-sys.path.append(os.path.join(__file__, ".."))
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 import numpy as np
 
