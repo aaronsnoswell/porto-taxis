@@ -126,10 +126,7 @@ def geoid_dist(lat1, lon1, lat2, lon2, *, r=6378.1):
     """
 
     # Convert degrees to radians
-    lat1 = np.deg2rad(lat1)
-    lon1 = np.deg2rad(lon1)
-    lat2 = np.deg2rad(lat2)
-    lon2 = np.deg2rad(lon2)
+    lat1, lon1, lat2, lon2 = np.deg2rad([lat1, lon1, lat2, lon2])
 
     # Compute P
     rho1 = r * np.cos(lat1)
