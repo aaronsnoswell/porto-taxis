@@ -566,6 +566,59 @@ def eval_shortest_path(xtr, phi, demonstrations):
 
     return learned_nlls, learned_paths, learned_fds, learned_pdms
 
+
+def save_eval_results(
+    fname,
+    init_nlls=None,
+    init_paths=None,
+    init_fds=None,
+    init_pdms=None,
+    learned_nlls=None,
+    learned_paths=None,
+    learned_fds=None,
+    learned_pdms=None,
+    iterations=None,
+    learned_resp=None,
+    learned_mode_weights=None,
+    learned_rewards=None,
+    nll=None,
+    reason=None,
+):
+    """Save evaluated results from a model to disk as a pickled dictionary"""
+
+    with open(fname, "wb") as file:
+        pickle.dump(
+            dict(
+                # Store initial solution values
+                init_nlls=[] if init_nlls is None else init_nlls,
+                init_paths=[]
+                if init_paths is None
+                else [np.array(p).tolist() for p in init_paths],
+                init_fds=[] if init_fds is None else init_fds,
+                init_pdms=[] if init_pdms is None else init_pdms,
+                # Store learned solution values
+                learned_nlls=[] if learned_nlls is None else learned_nlls,
+                learned_paths=[]
+                if learned_paths is None
+                else [np.array(p).tolist() for p in learned_paths],
+                learned_fds=[] if learned_fds is None else learned_fds,
+                learned_pdms=[] if learned_pdms is None else learned_pdms,
+                # Store training information
+                iterations=np.nan if iterations is None else int(iterations),
+                learned_resp=[] if learned_resp is None else learned_resp.tolist(),
+                learned_mode_weights=[]
+                if learned_mode_weights is None
+                else learned_mode_weights.tolist(),
+                learned_rewards=[]
+                if learned_rewards is None
+                else [learned_r.theta.tolist() for learned_r in learned_rewards],
+                nll=np.nan if nll is None else float(nll),
+                reason="" if reason is None else reason,
+            ),
+            file,
+        )
+
+
 def main():
     """Main function"""
     pass
