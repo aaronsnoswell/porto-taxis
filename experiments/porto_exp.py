@@ -212,6 +212,7 @@ def poto_taxi_forecasting_v2(
         )
 
         save_eval_results(
+            result_fname,
             init_nlls=init_nlls,
             init_paths=init_paths,
             init_fds=init_fds,
