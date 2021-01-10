@@ -43,7 +43,8 @@ def base_config():
     num_init_restarts = 5000
 
     # Tolerance for Negative Log Likelihood convergence
-    em_nll_tolerance = 1e-2
+    em_nll_tolerance = 0.0
+
     # How many rollouts to use for training?
     num_train_rollouts = 1000
 
@@ -57,7 +58,7 @@ def base_config():
     num_clusters = 3
 
     # Maximum number of EM iterations
-    max_iterations = None
+    max_iterations = 5
 
     # Replicate ID for this experiment
     replicate = 0
@@ -301,9 +302,9 @@ def main():
     parser.add_argument(
         "-m",
         "--max_iterations",
-        required=False,
+        required=True,
         type=int,
-        default=None,
+        default=5,
         help="Maximum number of EM iterations",
     )
 
