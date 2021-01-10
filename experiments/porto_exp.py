@@ -97,7 +97,7 @@ def poto_taxi_forecasting_v2(
     rollouts_train = short_rollouts[0 : len(short_rollouts) // 2]
     rollouts_test = short_rollouts[len(short_rollouts) // 2 :]
 
-    rollouts_train = num_train_rollouts[: min(num_train_rollouts, len(rollouts_train))]
+    rollouts_train = rollouts_train[: min(num_train_rollouts, len(rollouts_train))]
 
     _log.info(
         f"{_seed}: Got set of {len(rollouts_train)} training rollouts, {len(rollouts_test)} testing rollouts"
