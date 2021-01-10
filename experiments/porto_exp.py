@@ -44,6 +44,8 @@ def base_config():
 
     # Tolerance for Negative Log Likelihood convergence
     em_nll_tolerance = 1e-2
+    # How many rollouts to use for training?
+    num_train_rollouts = 1000
 
     # Minimum and maximum reward parameter values
     reward_range = (-10, 0)
@@ -65,6 +67,7 @@ def poto_taxi_forecasting_v2(
     initialisation,
     rollout_minmaxlen,
     num_init_restarts,
+    num_train_rollouts,
     reward_range,
     em_nll_tolerance,
     maxent_feature_tolerance,
@@ -92,6 +95,8 @@ def poto_taxi_forecasting_v2(
     random.shuffle(short_rollouts)
     rollouts_train = short_rollouts[0 : len(short_rollouts) // 2]
     rollouts_test = short_rollouts[len(short_rollouts) // 2 :]
+
+    rollouts_train = num_train_rollouts[: min(num_train_rollouts, len(rollouts_train))]
 
     _log.info(
         f"{_seed}: Got set of {len(rollouts_train)} training rollouts, {len(rollouts_test)} testing rollouts"
