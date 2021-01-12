@@ -214,7 +214,7 @@ def poto_taxi_forecasting_v2(
         # Evaluate trained model
         _log.info(f"{_seed}: Evaluating trained model...")
         learned_nlls, learned_paths, learned_fds, learned_pdms = eval_mixture(
-            xtr, phi, init_mode_weights, init_rewards, rollouts_test
+            xtr, phi, learned_mode_weights, learned_rewards, rollouts_test
         )
 
         save_eval_results(
