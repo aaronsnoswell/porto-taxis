@@ -563,14 +563,27 @@ def eval_shortest_path(xtr, phi, demonstrations):
 
 def save_eval_results(
     fname,
+    #
+    train_init_nlls=None,
+    train_init_paths=None,
+    train_init_fds=None,
+    train_init_pdms=None,
+    #
+    train_learned_nlls=None,
+    train_learned_paths=None,
+    train_learned_fds=None,
+    train_learned_pdms=None,
+    #
     init_nlls=None,
     init_paths=None,
     init_fds=None,
     init_pdms=None,
+    #
     learned_nlls=None,
     learned_paths=None,
     learned_fds=None,
     learned_pdms=None,
+    #
     iterations=None,
     learned_resp=None,
     learned_mode_weights=None,
@@ -583,6 +596,27 @@ def save_eval_results(
     with open(fname, "wb") as file:
         pickle.dump(
             dict(
+                # Store initial solution values
+                train_init_nlls=[] if train_init_nlls is None else train_init_nlls,
+                train_init_paths=[]
+                if train_init_paths is None
+                else [np.array(p).tolist() for p in train_init_paths],
+                train_init_fds=[] if train_init_fds is None else train_init_fds,
+                train_init_pdms=[] if train_init_pdms is None else train_init_pdms,
+                # Store learned solution values
+                train_learned_nlls=[]
+                if train_learned_nlls is None
+                else train_learned_nlls,
+                train_learned_paths=[]
+                if train_learned_paths is None
+                else [np.array(p).tolist() for p in train_learned_paths],
+                train_learned_fds=[]
+                if train_learned_fds is None
+                else train_learned_fds,
+                train_learned_pdms=[]
+                if train_learned_pdms is None
+                else train_learned_pdms,
+                #
                 # Store initial solution values
                 init_nlls=[] if init_nlls is None else init_nlls,
                 init_paths=[]
