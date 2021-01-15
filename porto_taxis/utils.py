@@ -84,34 +84,6 @@ def zoom_to_lines(ax=None, pad=0.1):
     plt.ylim(ymn - ypad, ymn + ypad)
 
 
-def nonoverlapping_shared_subsequences(list1, list2):
-    """Find all non-overlapping shared subsequences between two sequences
-    
-    Algorithm is from https://stackoverflow.com/a/32318377/885287
-    NB: This method does not guarantee the sub-sequences will be in any order
-    
-    Args:
-        list1 (sequence): First sequence
-        list2 (sequence): Second sequence
-        
-    Yields:
-        (list): The next sub-sequence that is shared by the list
-    """
-
-    list1 = copy.copy(list1)
-    list2 = copy.copy(list2)
-
-    while True:
-        mbs = difflib.SequenceMatcher(None, list1, list2).get_matching_blocks()
-        if len(mbs) == 1:
-            break
-        for i, j, n in mbs[::-1]:
-            if n > 0:
-                yield list1[i : i + n]
-            del list1[i : i + n]
-            del list2[j : j + n]
-
-
 def geoid_dist(lat1, lon1, lat2, lon2, *, r=6378.1):
     """Compute geoid (great-circle) distance between GPS points in km
     From http://www.ridgesolutions.ie/index.php/2013/11/14/algorithm-to-calculate-speed-from-two-gps-latitude-and-longitude-points-and-time-difference/

@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 
 from matplotlib.collections import LineCollection
 
-from mdp_extras.utils import PaddedMDPWarning
+from mdp_extras.utils import PaddedMDPWarning, nonoverlapping_shared_subsequences
 from mdp_extras import DiscreteImplicitExtras, FeatureFunction, padding_trick
 
 from porto_taxis.utils import nonoverlapping_shared_subsequences, geoid_dist
