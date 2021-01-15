@@ -342,12 +342,6 @@ class PortoFeatures(FeatureFunction):
             )
             return np.zeros(len(self))
 
-    def feature_distance_metric(self, path_1, path_2, gamma=1.0):
-        """Compute feature distance in km between two paths"""
-        phi_bar_1 = self.expectation([path_1], gamma=gamma)
-        phi_bar_2 = self.expectation([path_2], gamma=gamma)
-        return np.linalg.norm(phi_bar_1 - phi_bar_2)
-
 
 class PortoInference:
     """Container object to do inference with a single model"""
