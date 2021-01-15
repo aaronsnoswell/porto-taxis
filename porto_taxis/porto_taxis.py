@@ -509,7 +509,7 @@ def eval_mixture(xtr, phi, mode_weights, rewards, demonstrations):
 
     # Measure feature distance
     learned_fds = [
-        float(phi.feature_distance_metric(learned_path, gt_path, gamma=xtr.gamma))
+        float(phi.feature_distance(learned_path, gt_path, gamma=xtr.gamma))
         for gt_path, learned_path in zip(demonstrations, learned_paths)
     ]
 
@@ -548,7 +548,7 @@ def eval_shortest_path(xtr, phi, demonstrations):
 
     # Measure feature distance
     learned_fds = [
-        float(phi.feature_distance_metric(learned_path, gt_path, gamma=xtr.gamma))
+        float(phi.feature_distance(learned_path, gt_path, gamma=xtr.gamma))
         for gt_path, learned_path in zip(demonstrations, learned_paths)
     ]
 
