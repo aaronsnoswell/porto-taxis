@@ -13,7 +13,7 @@ from matplotlib.collections import LineCollection
 from mdp_extras.utils import PaddedMDPWarning, nonoverlapping_shared_subsequences
 from mdp_extras import DiscreteImplicitExtras, FeatureFunction, padding_trick
 
-from porto_taxis.utils import nonoverlapping_shared_subsequences, geoid_dist
+from porto_taxis.utils import geoid_dist
 
 from unimodal_irl import maxent_path_logprobs
 
