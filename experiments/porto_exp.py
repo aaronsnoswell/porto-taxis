@@ -134,6 +134,7 @@ def poto_taxi_forecasting_v2(
         solver = MaxEntEMSolver(
             # LBFGS convergence threshold (units of km)
             minimize_kwargs=dict(tol=maxent_feature_tolerance),
+            minimize_options=dict(disp=True),
             pre_it=lambda i: _log.info(f"{_seed}: Starting iteration {i}"),
             # parallel_executor=futures.ThreadPoolExecutor(num_clusters),
         )
