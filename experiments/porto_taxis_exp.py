@@ -145,6 +145,8 @@ def porto_taxis(
             method="CMA-ES",
             # minimize_kwargs=dict(tol=maxent_feature_tolerance),
             # minimize_options=dict(disp=True),
+            minimize_kwargs=dict(tol=maxent_feature_tolerance),
+            minimize_options=dict(disp=True, maxfun=max_irl_objective_calls),
             pre_it=lambda i: _log.info(f"{_seed}: Starting iteration {i}"),
             post_it=post_em_iteration
             # parallel_executor=futures.ThreadPoolExecutor(num_clusters),
