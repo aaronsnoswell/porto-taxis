@@ -37,10 +37,11 @@ def base_config():
 
     # Rollout min, max length
     # 500 paths seems like a reasonable maximum path length
-    rollout_minmaxlen = (0, 500)
+    # Update ajs 18/jan/21 - it isn't, let's try 300
+    rollout_minmaxlen = (0, 300)
 
     # Number of restarts to use for non-random initializations
-    num_init_restarts = 5000
+    num_init_restarts = 500
 
     # Tolerance for Negative Log Likelihood convergence
     em_nll_tolerance = 0.0
@@ -49,7 +50,7 @@ def base_config():
     num_train_rollouts = 1000
 
     # Minimum and maximum reward parameter values
-    reward_range = (-10, 0)
+    reward_range = (-10.0, 0.0)
 
     # Tolerance for MaxEnt feature convergence (units of km)
     maxent_feature_tolerance = 1e-3
@@ -64,7 +65,7 @@ def base_config():
     replicate = 0
 
 
-def poto_taxi_forecasting_v2(
+def porto_taxis(
     initialisation,
     rollout_minmaxlen,
     num_init_restarts,
@@ -98,6 +99,7 @@ def poto_taxi_forecasting_v2(
     rollouts_test = short_rollouts[len(short_rollouts) // 2 :]
 
     rollouts_train = rollouts_train[: min(num_train_rollouts, len(rollouts_train))]
+    rollouts_test = short_rollouts[len(short_rollouts) // 2 :]
 
     _log.info(
         f"{_seed}: Got set of {len(rollouts_train)} training rollouts, {len(rollouts_test)} testing rollouts"
@@ -128,6 +130,11 @@ def poto_taxi_forecasting_v2(
 
         # Apply padding trick
         xtr_p, rollouts_p_train = padding_trick(xtr, rollouts_train)
+
+                _run.log_scalar(f"training.mw{mw_idx}", mw)
+            for reward_idx, reward in enumerate(rewards):
+                for theta_idx, theta_val in enumerate(reward.theta):
+                    _run.log_scalar(f"training.r{reward_idx}.t{theta_idx}", theta_val)
 
         # Prep solver
         _log.info(f"{_seed}: Loading MaxEnt solver...")
