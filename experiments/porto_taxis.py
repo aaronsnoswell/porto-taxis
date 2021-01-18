@@ -96,8 +96,6 @@ def porto_taxis(
     ]
     random.shuffle(short_rollouts)
     rollouts_train = short_rollouts[0 : len(short_rollouts) // 2]
-    rollouts_test = short_rollouts[len(short_rollouts) // 2 :]
-
     rollouts_train = rollouts_train[: min(num_train_rollouts, len(rollouts_train))]
     rollouts_test = short_rollouts[len(short_rollouts) // 2 :]
 
@@ -131,6 +129,10 @@ def porto_taxis(
         # Apply padding trick
         xtr_p, rollouts_p_train = padding_trick(xtr, rollouts_train)
 
+        def post_em_iteration(solver, iteration, resp, mode_weights, rewards, nll):
+            _log.info(f"{_seed}: Iteration {iteration} ended")
+            _run.log_scalar("training.nll", nll)
+            for mw_idx, mw in enumerate(mode_weights):
                 _run.log_scalar(f"training.mw{mw_idx}", mw)
             for reward_idx, reward in enumerate(rewards):
                 for theta_idx, theta_val in enumerate(reward.theta):
@@ -140,9 +142,11 @@ def porto_taxis(
         _log.info(f"{_seed}: Loading MaxEnt solver...")
         solver = MaxEntEMSolver(
             # LBFGS convergence threshold (units of km)
-            minimize_kwargs=dict(tol=maxent_feature_tolerance),
-            minimize_options=dict(disp=True),
+            method="CMA-ES",
+            # minimize_kwargs=dict(tol=maxent_feature_tolerance),
+            # minimize_options=dict(disp=True),
             pre_it=lambda i: _log.info(f"{_seed}: Starting iteration {i}"),
+            post_it=post_em_iteration
             # parallel_executor=futures.ThreadPoolExecutor(num_clusters),
         )
 
@@ -256,7 +260,7 @@ def run(config, mongodb_url="localhost:27017"):
     # Dynamically bind experiment config and main function
     ex = Experiment()
     ex.config(base_config)
-    ex.main(poto_taxi_forecasting_v2)
+    ex.main(porto_taxis)
 
     # Attach MongoDB observer if necessary
     if not ex.observers:
