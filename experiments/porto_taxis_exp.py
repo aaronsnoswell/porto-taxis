@@ -41,7 +41,7 @@ def base_config():
     rollout_minmaxlen = (0, 300)
 
     # Number of restarts to use for non-random initializations
-    num_init_restarts = 500
+    num_init_restarts = 5000
 
     # Tolerance for Negative Log Likelihood convergence
     em_nll_tolerance = 0.0
@@ -61,6 +61,9 @@ def base_config():
     # Maximum number of EM iterations
     max_iterations = 5
 
+    # Maximum number of objective calls for each reward solve procedure
+    max_irl_objective_calls = 10
+
     # Replicate ID for this experiment
     replicate = 0
 
@@ -75,6 +78,7 @@ def porto_taxis(
     maxent_feature_tolerance,
     num_clusters,
     max_iterations,
+    max_irl_objective_calls,
     _log,
     _run,
     _seed,
@@ -142,9 +146,6 @@ def porto_taxis(
         _log.info(f"{_seed}: Loading MaxEnt solver...")
         solver = MaxEntEMSolver(
             # LBFGS convergence threshold (units of km)
-            method="CMA-ES",
-            # minimize_kwargs=dict(tol=maxent_feature_tolerance),
-            # minimize_options=dict(disp=True),
             minimize_kwargs=dict(tol=maxent_feature_tolerance),
             minimize_options=dict(disp=True, maxfun=max_irl_objective_calls),
             pre_it=lambda i: _log.info(f"{_seed}: Starting iteration {i}"),
@@ -213,10 +214,6 @@ def porto_taxis(
         learned_mode_weights = mode_weights_history[-1]
         learned_rewards = rewards_history[-1]
         nll = float(nll_history[-1])
-
-        # Log training NLLs as a metric
-        for _nll in nll_history:
-            _run.log_scalar("training.nll", float(_nll))
 
         _log.info(f"{_seed}: Iterations: {iterations}")
         _log.info(f"{_seed}: Responsibility Matrix")
@@ -316,7 +313,7 @@ def main():
     parser.add_argument(
         "-m",
         "--max_iterations",
-        required=True,
+        required=False,
         type=int,
         default=5,
         help="Maximum number of EM iterations",
@@ -327,7 +324,7 @@ def main():
         "--num_replicates",
         required=False,
         type=int,
-        default=5,
+        default=10,
         help="Number of replicates to perform",
     )
 
