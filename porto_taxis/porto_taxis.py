@@ -474,7 +474,7 @@ def mixture_ml_paths(xtr, phi, mode_weights, rewards, demonstrations):
     return mixture_maxlik_paths
 
 
-def eval_mixture(xtr, phi, mode_weights, rewards, demonstrations):
+def eval_mixture(xtr, phi, mode_weights, rewards, demonstrations, skip_ml_paths=False):
     """Evaluate a porto mixture model
     
     Args:
@@ -485,6 +485,8 @@ def eval_mixture(xtr, phi, mode_weights, rewards, demonstrations):
             generated from the start state to the end state of each of these.
         demonstrations (list): List of demonstration paths - for each demo path an ML
             path will be generated from the mixture.
+        
+        skip_ml_paths (bool): If true, skip ML path evaluations - speeds things up a lot
     
     Returns:
         (list): List of negative log likelihood for each demonstration under the mixture
@@ -503,21 +505,28 @@ def eval_mixture(xtr, phi, mode_weights, rewards, demonstrations):
         weights=mode_weights,
     ).tolist()
 
-    # Get ML path predictions from the mixture
-    # Convert path (s, a) tuples to list for better BSON storage in MongoDB
-    learned_paths = mixture_ml_paths(xtr, phi, mode_weights, rewards, demonstrations)
+    if skip_ml_paths:
+        learned_paths = None
+        learned_fds = None
+        learned_pdms = None
+    else:
+        # Get ML path predictions from the mixture
+        # Convert path (s, a) tuples to list for better BSON storage in MongoDB
+        learned_paths = mixture_ml_paths(
+            xtr, phi, mode_weights, rewards, demonstrations
+        )
 
-    # Measure feature distance
-    learned_fds = [
-        float(phi.feature_distance(learned_path, gt_path, gamma=xtr.gamma))
-        for gt_path, learned_path in zip(demonstrations, learned_paths)
-    ]
+        # Measure feature distance
+        learned_fds = [
+            float(phi.feature_distance(learned_path, gt_path, gamma=xtr.gamma))
+            for gt_path, learned_path in zip(demonstrations, learned_paths)
+        ]
 
-    # Measure percentage distance missed
-    learned_pdms = [
-        float(xtr.percent_distance_missed_metric(learned_path, gt_path))
-        for gt_path, learned_path in zip(demonstrations, learned_paths)
-    ]
+        # Measure percentage distance missed
+        learned_pdms = [
+            float(xtr.percent_distance_missed_metric(learned_path, gt_path))
+            for gt_path, learned_path in zip(demonstrations, learned_paths)
+        ]
 
     return learned_nlls, learned_paths, learned_fds, learned_pdms
 
