@@ -23,7 +23,7 @@ from porto_taxis import (
 )
 
 from pprint import pprint
-from multimodal_irl.bv_em import MaxEntEMSolver, bv_em
+from multimodal_irl.bv_em import MaxEntEMSolver, bv_em, MeanOnlyEMSolver
 
 from mdp_extras import padding_trick, PaddedMDPWarning
 
@@ -64,6 +64,12 @@ def base_config():
     # Maximum number of objective calls for each reward solve procedure
     max_irl_objective_calls = 10
 
+    # Means of initialisation reward parameters
+    reward_initialisation = "MLE"
+
+    # If true, skip ML path evaluations
+    skip_ml_paths = False
+
     # Replicate ID for this experiment
     replicate = 0
 
@@ -79,6 +85,8 @@ def porto_taxis(
     num_clusters,
     max_iterations,
     max_irl_objective_calls,
+    reward_initialisation,
+    skip_ml_paths,
     _log,
     _run,
     _seed,
@@ -133,25 +141,21 @@ def porto_taxis(
         # Apply padding trick
         xtr_p, rollouts_p_train = padding_trick(xtr, rollouts_train)
 
-        def post_em_iteration(solver, iteration, resp, mode_weights, rewards, nll):
-            _log.info(f"{_seed}: Iteration {iteration} ended")
-            _run.log_scalar("training.nll", nll)
-            for mw_idx, mw in enumerate(mode_weights):
-                _run.log_scalar(f"training.mw{mw_idx}", mw)
-            for reward_idx, reward in enumerate(rewards):
-                for theta_idx, theta_val in enumerate(reward.theta):
-                    _run.log_scalar(f"training.r{reward_idx}.t{theta_idx}", theta_val)
+        if reward_initialisation == "MLE":
+            _log.info(f"{_seed}: Using MLE to initialise mixture")
+            solver = MaxEntEMSolver(
+                # LBFGS convergence threshold (units of km)
+                minimize_kwargs=dict(tol=maxent_feature_tolerance),
+                minimize_options=dict(disp=True, maxfun=max_irl_objective_calls),
+            )
 
-        # Prep solver
-        _log.info(f"{_seed}: Loading MaxEnt solver...")
-        solver = MaxEntEMSolver(
-            # LBFGS convergence threshold (units of km)
-            minimize_kwargs=dict(tol=maxent_feature_tolerance),
-            minimize_options=dict(disp=True, maxfun=max_irl_objective_calls),
-            pre_it=lambda i: _log.info(f"{_seed}: Starting iteration {i}"),
-            post_it=post_em_iteration
-            # parallel_executor=futures.ThreadPoolExecutor(num_clusters),
-        )
+        elif reward_initialisation == "MeanOnly":
+            _log.info(f"{_seed}: Using MeanOnly to initialise mixture")
+            # We use a 'mean only' solver to do the reward initialisation
+            solver = MeanOnlyEMSolver()
+
+        else:
+            raise ValueError()
 
         _log.info(f"{_seed}: Initializing Mixture...")
         if initialisation == "Random":
@@ -182,10 +186,37 @@ def porto_taxis(
         else:
             raise ValueError()
 
+        def post_em_iteration(solver, iteration, resp, mode_weights, rewards, nll):
+            _log.info(f"{_seed}: Iteration {iteration} ended")
+            _run.log_scalar("training.nll", nll)
+            for mw_idx, mw in enumerate(mode_weights):
+                _run.log_scalar(f"training.mw{mw_idx}", mw)
+            for reward_idx, reward in enumerate(rewards):
+                for theta_idx, theta_val in enumerate(reward.theta):
+                    _run.log_scalar(f"training.r{reward_idx}.t{theta_idx}", theta_val)
+
+        if reward_initialisation == "MeanOnly":
+            _log.info(
+                f"{_seed}: Initialisation done - switching to MLE reward model for EM alg"
+            )
+            _log.info(f"{_seed}: Loading MaxEnt solver...")
+            solver = MaxEntEMSolver(
+                # LBFGS convergence threshold (units of km)
+                minimize_kwargs=dict(tol=maxent_feature_tolerance),
+                minimize_options=dict(disp=True, maxfun=max_irl_objective_calls),
+                pre_it=lambda i: _log.info(f"{_seed}: Starting iteration {i}"),
+                post_it=post_em_iteration
+                # parallel_executor=futures.ThreadPoolExecutor(num_clusters),
+            )
+        elif reward_initialisation == "MLE":
+            pass
+        else:
+            raise ValueError
+
         # Evaluate initial mixture model
         _log.info(f"{_seed}: Evaluating initial solution...")
         init_nlls, init_paths, init_fds, init_pdms = eval_mixture(
-            xtr, phi, init_mode_weights, init_rewards, rollouts_test
+            xtr, phi, init_mode_weights, init_rewards, rollouts_test, skip_ml_paths
         )
 
         # Run actual BV EM algorithm
@@ -225,7 +256,12 @@ def porto_taxis(
         # Evaluate trained model
         _log.info(f"{_seed}: Evaluating trained model...")
         learned_nlls, learned_paths, learned_fds, learned_pdms = eval_mixture(
-            xtr, phi, learned_mode_weights, learned_rewards, rollouts_test
+            xtr,
+            phi,
+            learned_mode_weights,
+            learned_rewards,
+            rollouts_test,
+            skip_ml_paths,
         )
 
         save_eval_results(
@@ -311,6 +347,15 @@ def main():
     )
 
     parser.add_argument(
+        "--reward_init",
+        required=False,
+        default="MLE",
+        type=str,
+        choices=("MLE", "MeanOnly"),
+        help="Reward initialisation method to use - defaults to MLE",
+    )
+
+    parser.add_argument(
         "-m",
         "--max_iterations",
         required=False,
@@ -328,13 +373,21 @@ def main():
         help="Number of replicates to perform",
     )
 
+    parser.add_argument(
+        "--skip_ml_paths",
+        action="store_true",
+        help="Skip ML path evaluations (speeds up experiment substantially)",
+    )
+
     args = parser.parse_args()
     print("Arguments:", args, flush=True)
 
     _base_config = {
         "num_clusters": args.num_modes,
         "initialisation": args.init,
+        "reward_initialisation": args.reward_init,
         "max_iterations": args.max_iterations,
+        "skip_ml_paths": args.skip_ml_paths,
     }
     print("META: Base configuration: ")
     pprint(_base_config)
