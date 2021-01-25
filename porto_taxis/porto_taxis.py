@@ -597,6 +597,9 @@ def save_eval_results(
     learned_resp=None,
     learned_mode_weights=None,
     learned_rewards=None,
+    resp_history=None,
+    mode_weights_history=None,
+    rewards_history=None,
     nll=None,
     reason=None,
 ):
@@ -649,6 +652,18 @@ def save_eval_results(
                 learned_rewards=[]
                 if learned_rewards is None
                 else [learned_r.theta.tolist() for learned_r in learned_rewards],
+                resp_history=[]
+                if resp_history is None
+                else np.array(resp_history).tolist(),
+                mode_weights_history=[]
+                if mode_weights_history is None
+                else np.array(mode_weights_history).tolist(),
+                rewards_history=[]
+                if rewards_history is None
+                else [
+                    [learned_r.theta.tolist() for learned_r in rewards]
+                    for rewards in rewards_history
+                ],
                 nll=np.nan if nll is None else float(nll),
                 reason="" if reason is None else reason,
             ),
