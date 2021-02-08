@@ -65,7 +65,8 @@ def base_config():
     max_iterations = 5
 
     # Maximum number of objective calls for each reward solve procedure
-    max_irl_objective_calls = None
+    # 1500 is the default Max Objective calls for L-BFGS-B
+    max_irl_objective_calls = 15000
 
     # Means of initialisation reward parameters
     reward_initialisation = "MLE"
