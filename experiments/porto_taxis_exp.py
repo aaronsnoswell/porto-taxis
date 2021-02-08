@@ -65,7 +65,7 @@ def base_config():
     max_iterations = 5
 
     # Maximum number of objective calls for each reward solve procedure
-    max_irl_objective_calls = 10
+    max_irl_objective_calls = None
 
     # Means of initialisation reward parameters
     reward_initialisation = "MLE"
@@ -77,7 +77,7 @@ def base_config():
     replicate = 0
 
 
-def porto_taxis(
+def porto_taxis_v2(
     initialisation,
     rollout_minmaxlen,
     num_init_restarts,
@@ -295,7 +295,7 @@ def run(config, mongodb_url="localhost:27017"):
     # Dynamically bind experiment config and main function
     ex = Experiment()
     ex.config(base_config)
-    ex.main(porto_taxis)
+    ex.main(porto_taxis_v2)
 
     # Attach MongoDB observer if necessary
     if not ex.observers:
