@@ -370,6 +370,14 @@ def main():
     )
 
     parser.add_argument(
+        "--max_irl_objective_calls",
+        required=False,
+        type=int,
+        default=15000,
+        help="Maximum number of IRL objective calls",
+    )
+
+    parser.add_argument(
         "--num_replicates",
         required=False,
         type=int,
@@ -392,6 +400,7 @@ def main():
         "reward_initialisation": args.reward_initialisation,
         "em_resp_tolerance": args.em_resp_tolerance,
         "max_iterations": args.max_iterations,
+        "max_irl_objective_calls": args.max_irl_objective_calls,
         "skip_ml_paths": not args.eval_ml_paths,
     }
     print("META: Base configuration: ")
